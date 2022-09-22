@@ -1,0 +1,721 @@
+#!/bin/bash
+#
+# a script to rename, thumbnail and store images on a mac
+#
+# ./premimg.sh <thumbnail-folder> <location> <count>
+#
+# <thumbnail-folder> is the location where thumbnails should be copied
+# <location> is the location text which will be added to each name
+# <count> is the num er of files to process
+# if called with count = 0, then test names only and don't process anything
+#
+# this script expects file and folder names to have no spaces (use hyphens instead)
+# and expects file extensions to be in capitals. 
+#
+#
+#
+# WHAT IT DOES
+#
+# look in the vault folder and find serial number of last file processed
+# for each file:
+#     rename to next serial number with a name format of
+#     yNNNNN_YYYYMMDD-HHMM_<location>_<subject>.ext
+#     where date and time are taken from mod time of each file
+#
+#     If an image, create a thumbnail of each file with a max dimension of 2k pixels
+#     If a video, use ffmpeg to create a low res 640px version
+#     Give the thumbnail the same name with next serial number
+#
+#     Copy thumbnail into a thumbnail folder (used for screensaver or whatever)
+#
+# when done, move all files processed into vault folder
+#
+# vault folder has structure yNNxxx/yNNNNxx etc, that is, folders each with 100 files or folders
+# 
+# thumbnail/screens folder has structure screens/<event>
+# 
+#
+#
+# HOW TO USE IT
+#
+# download images from phone or camera
+#
+# for each image, add an underscore then a subject
+# for example, IMG_1234.HEIC becomes IMG_1234_picnic.HEIC
+#
+# create the folder in your thumbnail location, where you the thumbnails to go
+# (this step is intentionally left manual to provide protection against typos in the command line)
+#
+# run this script with zero at end
+#
+# for example for photos and video from a winter walking trip, maybe use
+#     ./premimg 2022-06-06_Thredbo-trip AU-Thredbo 0
+#
+# This will show each file as it will be processed, and in which order
+# also it will show any names which are not expected or which have unexpected features
+# (spaces, too many underscores, etc)
+#
+# fix any problems
+#
+# When happy with the order and output, process files in groups of 99 or fewer, for example
+#     ./premimg 2022-06-06_Thredbo-trip AU-Thredbo 99
+#
+# check in your vault and thumbnail folders that the output is what you expected.
+#
+# if interested, check the log file to see what happened
+#
+#
+#
+# HOW TO SET IT UP
+#
+# If you don't already have homebrew, imagemagick & ffmpeg, then install them first
+# https://brew.sh
+# https://www.imagemagick.org
+# https://ffmpeg.org
+#
+# copy this file to the folder where your downloaded images wil be located
+#
+# remove the .txt extension and make it executable 
+#    chmod u+x prepimg.sh 
+#
+# 
+#
+############################################################################################
+#
+#name of script, used for message labelling
+ME=prepimg.sh
+#name of log file
+LOGFILE=/Volumes/RAM1/ramwip/prepimg.log
+#location to which thumbnails are copied (for use with screensaver etc)
+SCREENS=/Volumes/Work7/screens
+#location to which finished files are moved for permanent storage
+VAULT=/Volumes/Work7/vault-y
+
+if [ "" == "$1" ]
+then
+  echo "$ME usage: $ME <dir> <label> <count> : inputs [DSC|IMG]_*_*.JPG : outputs yNNNNN_YYYYMMDD-hhmm_label_.jpg"
+  exit
+fi
+if [ "" == "$2" ]
+then
+  echo "$ME usage: $ME <dir> <label> <count> : inputs [DSC|IMG]_*_*.JPG : outputs yNNNNN_YYYYMMDD-hhmm_label_.jpg"
+  exit
+fi
+if [ "" == "$3" ]
+then
+  echo "$ME usage: $ME <dir> <label> <count> : inputs [DSC|IMG]_*_*.JPG : outputs yNNNNN_YYYYMMDD-hhmm_label_.jpg"
+  exit
+  #YS="none"
+fi
+
+echo $ME 1000: $(date) >> $LOGFILE
+CX=$(ps -ax | grep $ME | grep -v grep | wc -l)
+if [ $CX -gt 2 ]
+then
+  echo "$ME 1001: FATAL already running" >> $LOGFILE
+  exit
+fi
+CX=0
+echo "$ME 1010: $(ls -l $ME)" >> $LOGFILE
+PROGRESS=10
+
+if [ $PROGRESS -eq 10 ]
+then
+  if [ ! -f $LOGFILE ]
+  then
+    echo "$ME 1050: FATAL no logfile $LOGFILE"
+    exit
+  else
+    echo "$ME 1060: $LOGFILE exists" >> $LOGFILE
+    STARTSEC=$(date +%s)
+    YC=$3
+    YL=$2
+    YS=$SCREENS/$1
+    PROGRESS=12
+  fi
+fi
+
+if [ $PROGRESS -eq 12 ]
+then
+  if ! command -v mogrify &> /dev/null
+  then
+      echo "$ME 1003:  ERROR  imagemagick mogrify not installed - exiting" >> $LOGFILE
+      echo "$ME 1003:  ERROR  imagemagick mogrify not installed - exiting"
+  else
+    PROGRESS=15
+  fi
+fi
+
+if [ $PROGRESS -eq 15 ]
+then
+  if ! command -v ffmpeg &> /dev/null
+  then
+      echo "$ME 1003:  ERROR  ffmpeg not installed - exiting" >> $LOGFILE
+      echo "$ME 1003:  ERROR  ffmpeg not installed - exiting"
+  else
+    PROGRESS=20
+  fi
+fi
+
+
+if [ $PROGRESS -eq 20 ]
+then
+  printf "%s: %60s: %s\n" "$ME 1065" " " "copying to $YS" >> $LOGFILE
+  printf "%s: %60s: %s\n" "$ME 1065" " " "copying to $YS"
+  if [ ! -d $YS ]
+  then
+    echo "$ME 1070:  ERROR  $YS not found or is not a directory - exiting" >> $LOGFILE
+    echo "$ME 1070:  ERROR  $YS not found or is not a directory - exiting"
+  else
+    if [ ! -x $YS ]
+    then
+      echo "$ME 1080:  ERROR  $YS missing list permission - exiting" >> $LOGFILE
+      echo "$ME 1080:  ERROR  $YS missing list permission - exiting"
+    else
+      if [ ! -w $YS ]
+      then
+        echo "$ME 1090:  ERROR  $YS missing write permission - exiting" >> $LOGFILE
+        echo "$ME 1090:  ERROR  $YS missing write permission - exiting"
+      else
+        PROGRESS=30
+      fi
+    fi  
+  fi
+fi
+
+if [ $PROGRESS -eq 30 ]
+then
+  if [ "$YC" -eq 0 ]
+  then
+    printf "%s: %60s: %s\n" "$ME 1200" " " "file count zero - dry run mode" >> $LOGFILE
+    printf "%s: %60s: %s\n" "$ME 1200" " " "file count zero - dry run mode"
+  fi
+  if [ "$YC" -lt 0 ]
+  then
+    echo "$ME 1210:  ERROR  file count less than 0 - exiting" >> $LOGFILE
+    echo "$ME 1210:  ERROR  file count less than 0 - exiting"
+  else
+    if [ "$YC" -gt 99 ]
+    then
+      echo "$ME 1220:  ERROR  file count exceeds maximum of 99 - exiting" >> $LOGFILE
+      echo "$ME 1220:  ERROR  file count exceeds maximum of 99 - exiting"
+    else
+      printf "%s: %60s: %s\n" "$ME 1260" " " "sequencing $YC files for $YL" >> $LOGFILE
+      printf "%s: %60s: %s\n" "$ME 1260" " " "sequencing $YC files for $YL"
+      PROGRESS=35
+    fi
+  fi
+fi
+
+if [ $PROGRESS -eq 35 ]
+then
+  CX=$VAULT/
+  printf "%s: %60s: %s\n" "$ME 1231" " " "$CX" >> $LOGFILE
+  #printf "%s: %60s: %s\n" "$ME 1231" " " "$CX"
+  CX=$(ls -d $VAULT/y* | tail -1)
+  printf "%s: %60s: %s\n" "$ME 1232" " " "$CX" >> $LOGFILE
+  #printf "%s: %60s: %s\n" "$ME 1232" " " "$CX"
+  #CY=$CX
+  CX=$(ls -d $CX/y* | tail -1)  
+  printf "%s: %60s: %s\n" "$ME 1233" " " "$CX" >> $LOGFILE
+  #printf "%s: %60s: %s\n" "$ME 1233" " " "$CX"  
+  CX=$(ls -d $CX/y1?????_????-??-??-????_*.* | tail -1)   
+  printf "%s: %60s: %s\n" "$ME 1234" " " "$CX" >> $LOGFILE
+  printf "%s: %60s: %s\n" "$ME 1234" " " "$CX"
+  if [ ! -f $CX ]
+  then
+    echo "$ME 1245:  ERROR  $CX not a file - exiting" >> $LOGFILE
+    echo "$ME 1245:  ERROR  $CX not a file - exiting"
+  else
+    YNUM=$(ls $CX | wc -l)
+    if [ "$YNUM" -lt 1 ]
+    then
+      echo "$ME 1230:  ERROR  no file yNNNNNN_yy-mm-dd-tttt_*.* to determine index - exiting" >> $LOGFILE
+      echo "$ME 1230:  ERROR  no file yNNNNNN_yy-mm-dd-tttt_*.* to determine index - exiting"
+    else
+      #YNUM=$(ls y1?????_20??-??-??-????_*.* | tail -1 | cut -b 2-7)
+      #YNUM=$(ls $CX/y1?????_20??-??-??-????_*.* | tail -1 | cut -f 7 -d / | cut -b 2-7)
+      #YNUM=$(ls $CX | tail -1 | cut -f 7 -d / | cut -b 2-7)
+      # this needs improvement
+      YNUM=$(ls $CX | cut -f 7 -d / | cut -b 2-7)
+      if [ "$YNUM" -lt 133000 ]
+      then
+        echo "$ME 1240:  ERROR  file serial number too low - exiting" >> $LOGFILE
+        echo "$ME 1240:  ERROR  file serial number too low - exiting"
+      else
+        if [ "$YNUM" -gt 199999 ]
+        then
+          echo "$ME 1250:  ERROR  file serial number too high - exiting" >> $LOGFILE
+          echo "$ME 1250:  ERROR  file serial number too high - exiting"
+        else
+          printf "%s: %60s: %s\n" "$ME 1270" " " "highest located serial $YNUM" >> $LOGFILE
+          printf "%s: %60s: %s\n" "$ME 1270" " " "highest located serial $YNUM"
+          PROGRESS=40
+        fi
+      fi
+    fi
+  fi
+fi
+
+#
+# pre-check files in list
+#
+if [ $PROGRESS -eq 40 ]
+then
+  YI=0
+  printf "%s: %60s: %s\n" "$ME 1300" " " "inspecting file names" >> $LOGFILE
+  printf "%s: %60s: %s\n" "$ME 1300" " " "inspecting file names"
+  #for YF in $( ls -tr | grep -E "[A-Z]{3,4}_.+_.+\.[A-Z]{3,4}" 2>/dev/null )
+  #for YF in $( ls -tr | grep -E "^(C0|DSC00|DSC_|IMG_|DJI_|FILE|PICT|RCNX)\S+_\S+\.(JPG|JPEG|MOV|PNG|HEIC|MP4|XML)$" 2>/dev/null )
+  for YF in $( ls -tr | grep -E "^(C00|DSC0|DSC_|IMG_|DJI_|FILE|PICT|RCNX)\S+_\S+\.(JPG|JPEG|MOV|PNG|png|HEIC|MP4|XML|TIF|tif|NMEA)$" 2>/dev/null )
+  #for YF in $( ls -t | grep -E "^(C00|DSC00|DSC_|IMG_|DJI_|FILE|PICT|RCNX)\S+_\S+\.(JPG|JPEG|MOV|PNG|png|HEIC|MP4|XML|TIF|tif|NMEA)$" 2>/dev/null )
+  do
+    if [ ! -f $YF ]
+    then
+      echo "$ME 1310:  ERROR  $YF not found - exiting (space in filename ?)" >> $LOGFILE
+      echo "$ME 1310:  ERROR  $YF not found - exiting (space in filename ?)"
+      PROGRESS=0
+    fi
+
+    LABEL=$( echo $YF | cut -f4 -d_ | cut -f1 -d. )
+    if [ "$LABEL" != "" ]
+    then
+      echo "$ME 1320:  ERROR  $YF label error - exiting (too many underscores ?)" >> $LOGFILE
+      echo "$ME 1320:  ERROR  $YF label error - exiting (too many underscores ?)"
+      PROGRESS=0
+    fi
+
+    LABEL=$( echo $YF | cut -f3 -d_ | cut -f1 -d. )
+    if [ "$LABEL" == "" ]
+    then
+      LABEL=$( echo $YF | cut -f2 -d_ | cut -f1 -d. )
+      if [ "$LABEL" == "" ]
+      then
+        echo "$ME 1330:  ERROR  $YF label error - exiting (too few underscores ?)"
+        echo "$ME 1330:  ERROR  $YF label error - exiting (too few underscores ?)" >> $LOGFILE
+        PROGRESS=0
+      fi
+    fi
+
+    LEXT=$( echo $YF | cut -f2 -d. | tr 'A-Z' 'a-z' )
+    if [ "$LEXT" == "" ]
+    then
+      echo "$ME 1340:  ERROR  $YF file ext error - exiting (does not end in .ext ?)" >> $LOGFILE
+      echo "$ME 1340:  ERROR  $YF file ext error - exiting (does not end in .ext ?)"
+      PROGRESS=0
+    fi
+
+    YI=$(($YI + 1))
+    printf "%s: %60s: %s\n" "$ME 1350" "$YF" "$YI label $LABEL ext $LEXT" >> $LOGFILE
+    printf "%s: %60s: %s\n" "$ME 1350" "$YF" "$YI label $LABEL ext $LEXT"
+
+    if [ "$YC" -ne 0 ] && [ "$YI" -ge "$YC" ]
+    then
+      break
+    fi
+    if [ $PROGRESS -eq 0 ]
+    then
+      break
+    fi
+  done
+  printf "%s: %60s: %s\n" "$ME 1360" " " "$YI files inspected" >> $LOGFILE
+  printf "%s: %60s: %s\n" "$ME 1360" " " "$YI files inspected"
+  if [ "$YC" -eq 0 ]
+  then
+    printf "%s: %60s: %s\n" "$ME 1370" " " "verify mode: exiting" >> $LOGFILE
+    printf "%s: %60s: %s\n" "$ME 1370" " " "verify mode: exiting"
+    PROGRESS=0
+  else
+    PROGRESS=50
+  fi
+fi
+
+#
+#
+#
+if [ $PROGRESS -eq 50 ]
+  then
+    YI=0
+    #for YF in $( ls -tr | grep -E "^(C00|DSC00|DSC_|IMG_|DJI_|FILE|PICT|RCNX)\S+_\S+\.(JPG|JPEG|MOV|PNG|HEIC|MP4|XML|TIF)$" 2>/dev/null )
+    for YF in $( ls -tr | grep -E "^(C00|DSC0|DSC_|IMG_|DJI_|FILE|PICT|RCNX)\S+_\S+\.(JPG|JPEG|MOV|PNG|png|HEIC|MP4|XML|TIF|tif|NMEA)$" 2>/dev/null )
+    #for YF in $( ls -t | grep -E "^(C00|DSC00|DSC_|IMG_|DJI_|FILE|PICT|RCNX)\S+_\S+\.(JPG|JPEG|MOV|PNG|png|HEIC|MP4|XML|TIF|tif|NMEA)$" 2>/dev/null )
+    do
+      if [ ! -f $YF ]
+      then
+        echo "$ME 1400:  ERROR  $YF not found - exiting (space in filename ?)" >> $LOGFILE
+        echo "$ME 1400:  ERROR  $YF not found - exiting (space in filename ?)"
+       PROGRESS=0
+      fi
+
+      LABEL=$( echo $YF | cut -f4 -d_ | cut -f1 -d. )
+      if [ "$LABEL" != "" ]
+      then
+        echo "$ME 1410:  ERROR  $YF label error - exiting (too many underscores ?)" >> $LOGFILE
+        echo "$ME 1410:  ERROR  $YF label error - exiting (too many underscores ?)"
+        PROGRESS=0
+      fi
+
+      LABEL=$( echo $YF | cut -f3 -d_ | cut -f1 -d. )
+      if [ "$LABEL" == "" ]
+      then
+        LABEL=$( echo $YF | cut -f2 -d_ | cut -f1 -d. )
+        if [ "$LABEL" == "" ]
+        then
+          echo "$ME 1420:  ERROR  $YF label error - exiting (too few underscores ?)" >> $LOGFILE
+          echo "$ME 1420:  ERROR  $YF label error - exiting (too few underscores ?)"
+          PROGRESS=0
+        fi
+      fi
+
+      if [ "$LABEL" == "" ]
+      then
+        #printf "%s: %60s: %s\n" "$ME 1430" "$YF" "no additional label" >> $LOGFILE
+        #printf "%s: %60s: %s\n" "$ME 1430 " "$YF" "no additional label"
+        echo "$ME 1430:  ERROR  $YF label error - no label" >> $LOGFILE
+        echo "$ME 1430:  ERROR  $YF label error - no label"
+        PROGRESS=0
+      else
+        printf "%s: %60s: %s\n" "$ME 1440" "$YF" "adding label $LABEL" >> $LOGFILE
+        printf "%s: %60s: %s\n" "$ME 1440" "$YF" "adding label $LABEL"
+      fi
+
+      LEXT=$( echo $YF | cut -f2 -d. | tr 'A-Z' 'a-z' )
+      if [ "$LEXT" == "" ]
+      then
+        echo "$ME 1450:  ERROR  $YF file ext error - exiting (does not end in .ext ?)" >> $LOGFILE
+        echo "$ME 1450:  ERROR  $YF file ext error - exiting (does not end in .ext ?)"
+        PROGRESS=0
+      else
+        printf "%s: %60s: %s\n" "$ME 1460" "$YF" "         ext $LEXT" >> $LOGFILE
+        printf "%s: %60s: %s\n" "$ME 1460" "$YF" "         ext $LEXT"
+      fi
+      
+      if [ $PROGRESS -eq 0 ]
+      then
+        break
+      fi
+  
+      YTHIS=$(( $YNUM + 1 ))
+      YNEXT=$(( $YNUM + 2 ))
+      YDAS=$( stat -s $YF | cut -f 10 -d" " | cut -b 10- )
+      YDAT=$( date -j -r $YDAS +%Y-%m-%d-%H%M )
+      if [ "$LABEL" == "" ]
+      then
+        #Y1=y"$YTHIS"_"$YDAT"_"$YL".$LEXT
+        #Y2=y"$YNEXT"_"$YDAT"_"$YL".jpg
+        echo "$ME 1465:  ERROR  $YF label error - no label" >> $LOGFILE
+        echo "$ME 1465:  ERROR  $YF label error - no label"
+        PROGRESS=0
+      else
+        Y1=y"$YTHIS"_"$YDAT"_"$YL"_"$LABEL".$LEXT
+        if [ "$LEXT" == "jpg" ] || [ "$LEXT" == "png" ] || [ "$LEXT" == "heic" ] || [ "$LEXT" == "tif" ]
+        then
+          Y2=y"$YNEXT"_"$YDAT"_"$YL"_"$LABEL".jpg
+        elif [ "$LEXT" == "mp4" ] || [ "$LEXT" == "mov" ] 
+        then
+          Y2=y"$YNEXT"_"$YDAT"_"$YL"_"$LABEL".mp4
+        else
+          Y2=""
+        fi
+      fi
+
+      if [ $PROGRESS -eq 0 ]
+      then
+        break
+      fi
+      
+      if [ -f $Y1 ]
+      then
+        echo "$ME 1470:  ERROR  $Y1 already exists - exiting" >> $LOGFILE
+        echo "$ME 1470:  ERROR  $Y1 already exists - exiting"
+        PROGRESS=0
+      fi
+     if [ "$Y2" != "" ]
+      then
+        if [ -f $Y2 ]
+        then
+          echo "$ME 1480:  ERROR  $Y2 already exists - exiting" >> $LOGFILE
+          echo "$ME 1480:  ERROR  $Y2 already exists - exiting"
+          PROGRESS=0
+        fi
+      else
+        #echo "$ME 1485:  not image or movie, skip duplication" >> $LOGFILE
+        #echo "$ME 1485:  not image or movie, skip duplication"
+        printf "%s: %60s: %s\n" "$ME 1485" "$YF" "  not image or movie, skip duplication" >> $LOGFILE
+        printf "%s: %60s: %s\n" "$ME 1485" "$YF" "  not image or movie, skip duplication"
+      fi
+    
+      if [ $PROGRESS -eq 0 ]
+      then
+        break
+      fi
+
+      if [ "$LEXT" == "jpg" ] || [ "$LEXT" == "png" ] || [ "$LEXT" == "heic" ] || [ "$LEXT" == "mp4" ] || [ "$LEXT" == "mov" ]|| [ "$LEXT" == "tif" ]
+      then
+        if [ "$LEXT" == "jpg" ] || [ "$LEXT" == "png" ] || [ "$LEXT" == "heic" ] || [ "$LEXT" == "tif" ]
+        then 
+          printf "%s: %60s: %s\n" "$ME 1500" "$YF" "converting to $Y2" >> $LOGFILE
+          printf "%s: %60s: %s\n" "$ME 1500" "$YF" "converting to $Y2"
+          nice convert $YF -resize 2048x2048 -quality 70 $Y2
+        elif [ "$LEXT" == "mp4" ] || [ "$LEXT" == "mov" ] 
+        then
+          printf "%s: %60s: %s\n" "$ME 1520" "$YF" " rescaling to $Y2" >> $LOGFILE
+          printf "%s: %60s: %s\n" "$ME 1520" "$YF" " rescaling to $Y2"
+          #https://ottverse.com/change-resolution-resize-scale-video-using-ffmpeg/
+          nice ffmpeg -i $YF -vf scale=640:-1 -loglevel error $Y2 
+          #nice ffmpeg -i $YF -vf scale='min(640,iw)':-1 -loglevel error $Y2 
+        else
+          #printf "%s: %60s: %s\n" "$ME 1530" "$YF" "  unexpected LEXT - exiting" >> $LOGFILE
+          #printf "%s: %60s: %s\n" "$ME 1530" "$YF" "  unexpected LEXT - exiting"
+          #PROGRESS=0
+          printf "%s: %60s: %s\n" "$ME 1530" "$YF" "  not image or movie, skip processing" >> $LOGFILE
+          printf "%s: %60s: %s\n" "$ME 1530" "$YF" "  not image or movie, skip processing"
+        fi
+        #sleep 2
+        if [ ! -f $Y2 ]
+        then
+          echo "$ME 1540:  ERROR  $Y2 not found - exiting" >> $LOGFILE
+          echo "$ME 1540:  ERROR  $Y2 not found - exiting"
+          PROGRESS=0
+        fi
+      elif [ "$LEXT" == "skip" ]
+      then
+        printf "%s: %60s: %s\n" "$ME 1550" "$YF" "  manually processed: renumber only" >> $LOGFILE
+        printf "%s: %60s: %s\n" "$ME 1550" "$YF" "  manually processed: renumber only"
+      else
+        printf "%s: %60s: %s\n" "$ME 1560" "$YF" "  not JPG,PNG,HEIC,MP4 - skip duplicate/mogrify" >> $LOGFILE
+        printf "%s: %60s: %s\n" "$ME 1560" "$YF" "  not JPG,PNG,HEIC,MP4 - skip duplicate/mogrify"
+      fi
+    
+      if [ $PROGRESS -eq 0 ]
+      then
+        break
+      fi
+
+      printf "%s: %60s: %s\n" "$ME 1570" "$YF" "    moving to $Y1" >> $LOGFILE
+      printf "%s: %60s: %s\n" "$ME 1570" "$YF" "    moving to $Y1"
+      #echo "$ME  moving $YF to $Y1"
+      mv $YF $Y1
+      #sleep 2
+      if [ ! -f $Y1 ]
+      then
+        echo "$ME 1580:  ERROR  $Y1 not found - exiting" >> $LOGFILE
+        echo "$ME 1580:  ERROR  $Y1 not found - exiting"
+        PROGRESS=0
+      fi
+      if [ -f $YF ]
+      then
+        echo "$ME 1590:  ERROR  $YF still exists - exiting" >> $LOGFILE
+        echo "$ME 1590:  ERROR  $YF still exists - exiting"
+        PROGRESS=0
+      fi
+    
+      if [ $PROGRESS -eq 0 ]
+      then
+        break
+      fi
+
+      if [ "$YS" != "none" ]
+      then
+        if [ "$LEXT" == "jpg" ] || [ "$LEXT" == "png" ] || [ "$LEXT" == "heic" ] || [ "$LEXT" == "mp4" ] || [ "$LEXT" == "mov" ] || [ "$LEXT" == "tif" ]
+        then
+          #sleep 2
+          Y2S="$YS"/"$Y2"
+          printf "%s: %60s: %s\n" "$ME 1600" "$YF" " copying from $Y2" >> $LOGFILE
+          #printf "%s: %60s: %s\n" "$ME 1600" "$YF" " copying from $Y2"
+          printf "%s: %60s: %s\n" "$ME 1610" "$YF" " copying   to $YS" >> $LOGFILE
+          printf "%s: %60s: %s\n" "$ME 1610" "$YF" " copying   to $YS"
+          if [ -f $Y2S ]
+          then
+            echo "$ME 1620:  ERROR  $Y2S already exists - exiting" >> $LOGFILE
+            echo "$ME 1620:  ERROR  $Y2S already exists - exiting"
+            PROGRESS=0
+          fi
+          if [ $PROGRESS -eq 0 ]
+          then
+            break
+          fi
+          cp $Y2 $Y2S
+          if [ ! -f $Y2S ]
+          then
+            echo "$ME 1630:  ERROR  $Y2S not found - exiting" >> $LOGFILE
+            echo "$ME 1630:  ERROR  $Y2S not found - exiting"
+            PROGRESS=0
+          fi
+        else
+          printf "%s: %60s: %s\n" "$ME 1640" "$YF" "  not JPG,PNG,HEIC,MP4 - skip copy to screens folder" >> $LOGFILE
+          printf "%s: %60s: %s\n" "$ME 1640" "$YF" "  not JPG,PNG,HEIC,MP4 - skip copy to screens folder"
+        fi
+      fi
+
+      if [ "$LEXT" == "jpg" ] || [ "$LEXT" == "png" ] || [ "$LEXT" == "heic" ] || [ "$LEXT" == "mp4" ] || [ "$LEXT" == "mov" ] || [ "$LEXT" == "tif" ]
+      then
+        YNUM=$(( $YNUM + 2 ))
+      else
+        YNUM=$(( $YNUM + 1 ))
+      fi
+      #sleep 2
+      YI=$(($YI + 1))
+      printf "%s: %60s: %s\n" "$ME 1650" "$YF" "file $YI of $YC done" >> $LOGFILE
+      printf "%s: %60s: %s\n" "$ME 1650" "$YF" "file $YI of $YC done"
+      #echo "$ME $YI"
+      if [ "$YI" -ge "$YC" ]
+      then
+        FINISHSEC=$(date +%s)
+        RUNSEC=$(($FINISHSEC - $STARTSEC))
+        printf "%s: %60s: %s\n" "$ME 1660" " " "$YI files processed in $RUNSEC seconds: finished" >> $LOGFILE
+        printf "%s: %60s: %s\n" "$ME 1660" " " "$YI files processed in $RUNSEC seconds: finished"
+        break
+      fi
+    if [ $PROGRESS -eq 0 ]
+    then
+      break
+    fi
+  done
+  if [ $PROGRESS -eq 50 ]
+  then
+    PROGRESS=60
+  fi
+fi
+
+#echo "$ME run out of files to process: stopping"
+#else
+#  printf "%s: %60s: %s\n" "$ME" " " "verify mode: exiting"
+#fi
+#
+#
+#exit
+
+if [ $PROGRESS -eq 60 ]
+then
+  if [ "$YC" -le 0 ]
+  then
+    printf "%s: %60s: %s\n" "$ME 1700" " " "verify mode: skip moving to vault" >> $LOGFILE
+    printf "%s: %60s: %s\n" "$ME 1700" " " "verify mode: skip moving to vault"
+  else
+    printf "%s: %80s: %s\n" "$ME 1710" " " "moving files to vault" >> $LOGFILE
+    printf "%s: %80s: %s\n" "$ME 1710" " " "moving files to vault"
+    for YF in $( ls y1?????_20??-??-??-????_*.* )
+    do
+      if [ ! -f $YF ]
+      then
+        printf "%s: %80s: %s\n" "$ME 1720" "$YF" "not a file - exiting" >> $LOGFILE
+        printf "%s: %80s: %s\n" "$ME 1720" "$YF" "not a file - exiting"
+        break
+      fi
+      YNUM=$(echo $YF | cut -b 1-7)
+      Y1=$(echo $YNUM | cut -b 1-3)
+      Y2="$VAULT"/"$Y1"xxxx
+      if [ ! -d $Y2 ]
+      then
+        printf "%s: %80s: %s\n" "$ME 1730" "creating" "$Y2" >> $LOGFILE
+        printf "%s: %80s: %s\n" "$ME 1730" "creating" "$Y2"
+        mkdir $Y2
+      fi
+      if [ ! -d $Y2 ]
+      then
+        printf "%s: %80s: %s\n" "$ME 1740" "$YF" "$Y2 not found - exiting" >> $LOGFILE
+        printf "%s: %80s: %s\n" "$ME 1740" "$YF" "$Y2 not found - exiting"
+        PROGRESS=0
+        break
+      else
+        #printf "%s: %80s: %s\n" "$ME" "$YF" "$Y2 exists"
+        Y1=$(echo $YNUM | cut -b1-5)
+        Y2="$Y2"/"$Y1"xx
+        if [ ! -d $Y2 ]
+        then
+          printf "%s: %80s: %s\n" "$ME 1750" "creating" "$Y2" >> $LOGFILE
+          printf "%s: %80s: %s\n" "$ME 1750" "creating" "$Y2"
+          mkdir $Y2
+        fi
+        if [ ! -d $Y2 ]
+        then
+          echo "$ME 1760:  ERROR  $Y2 not found - exiting" >> $LOGFILE
+          echo "$ME 1760:  ERROR  $Y2 not found - exiting"
+       break
+        else
+          printf "%s: %80s: %s\n" "$ME 1770" "$YF" "$Y2 exists" >> $LOGFILE
+          mv $YF $Y2
+          if [ ! -f $Y2/$YF ]
+          then
+            echo "$ME 1780:  ERROR  $YF file not in destination - exiting" >> $LOGFILE
+            echo "$ME 1780:  ERROR  $YF file not in destination - exiting"
+            PROGRESS=0
+            break
+          else
+            printf "%s: %80s: %s\n" "$ME 1790" "$YF" "copied to $Y2" >> $LOGFILE
+            if [ -f $YF ]
+            then
+              echo "$ME 1800:  ERROR  $YF source still in place - exiting" >> $LOGFILE
+              echo "$ME 1800:  ERROR  $YF source still in place - exiting"
+              PROGRESS=0
+              break
+            else
+              printf "%s: %80s: %s\n" "$ME 1810" "$YF" "moved to $Y2" >> $LOGFILE
+              printf "%s: %80s: %s\n" "$ME 1810" "$YF" "moved to $Y2"
+            fi
+          fi
+        fi
+      fi
+    done
+  fi
+  if [ $PROGRESS -eq 60 ]
+  then
+    PROGRESS=70
+  fi
+fi
+#
+#
+#
+if [ $PROGRESS -eq 70 ]
+then
+  LOGSIZE=$( ls -s $LOGFILE | cut -d " " -f 1 )
+  # size in blocks, leave enough to have a couple of days' records
+  #echo "$ME 1900: logfile size $LOGSIZE" >> $LOGFILE
+  printf "%s: %80s: %s\n" "$ME 1900" "$LOGFILE" "size $LOGSIZE" >> $LOGFILE
+  if [ $LOGSIZE -gt "500" ]
+  then
+    #echo "$ME 1910: logfile size $LOGSIZE, rotating logfile" >> $LOGFILE
+    printf "%s: %80s: %s\n" "$ME 1910" "$LOGFILE" "logfile size $LOGSIZE, rotating logfile" >> $LOGFILE
+    if [ -f $LOGFILE.old ]
+    then
+      rm -f $LOGFILE.old
+    fi
+    if [ -f $LOGFILE.old ]
+    then
+      echo "$ME 1920:  ERROR  unable to delete old log file" >> $LOGFILE
+      echo "$ME 1920:  ERROR  unable to delete old log file"
+      exit
+    fi
+    mv $LOGFILE $LOGFILE.old
+    if [ ! -f $LOGFILE.old ]
+    then
+      echo "$ME 1930:  ERROR  unable to rename old log file" >> $LOGFILE
+      echo "$ME 1930:  ERROR  unable to rename old log file"
+      exit
+    fi
+    printf "%s: %80s: %s\n" "$ME 1940" "$LOGFILE" "logfile rotated" >> $LOGFILE
+    #echo "$ME 1940: logfile rotated" >> $LOGFILE
+  fi
+  if [ $PROGRESS -eq 70 ]
+  then
+    PROGRESS=80
+  fi
+fi
+#
+#
+#
+if [ $PROGRESS -eq 80 ]
+then
+  FINISHSEC=$(date +%s)
+  RUNSEC=$(($FINISHSEC - $STARTSEC))
+  printf "%s: %80s: %s\n" "$ME 1960" " " "run completed in $RUNSEC seconds: finished" >> $LOGFILE
+  printf "%s: %80s: %s\n" "$ME 1960" " " "run completed in $RUNSEC seconds: finished"
+  printf "%s: %80s: %s\n" "$ME 1970" " " "check for expected output in $SCREENS"
+  printf "%s: %80s: %s\n" "$ME 1980" " " "check for expected output in $VAULT"
+fi
+
+echo "$ME 2000: $(date)" >> $LOGFILE
+#
+#
+#
